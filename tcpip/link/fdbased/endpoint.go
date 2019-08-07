@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// +build linux
-
 // Package fdbased provides the implemention of data-link layer endpoints
 // backed by boundary-preserving file descriptors (e.g., TUN devices,
 // seqpacket/datagram sockets).
@@ -41,14 +39,15 @@ package fdbased
 
 import (
 	"fmt"
+	"log"
 	"syscall"
+	"bufio"
+	"os"
 
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/buffer"
 	"github.com/google/netstack/tcpip/header"
-	"github.com/google/netstack/tcpip/link/rawfile"
 	"github.com/google/netstack/tcpip/stack"
-	"golang.org/x/sys/unix"
 )
 
 // linkDispatcher reads packets from the link FD and dispatches them to the
@@ -210,16 +209,7 @@ func New(opts *Options) (tcpip.LinkEndpointID, error) {
 			return 0, fmt.Errorf("syscall.SetNonblock(%v) failed: %v", fd, err)
 		}
 
-		isSocket, err := isSocketFD(fd)
-		if err != nil {
-			return 0, err
-		}
-		if isSocket {
-			if opts.GSOMaxSize != 0 {
-				e.caps |= stack.CapabilityGSO
-				e.gsoMaxSize = opts.GSOMaxSize
-			}
-		}
+		isSocket := false
 		inboundDispatcher, err := createInboundDispatcher(e, fd, isSocket)
 		if err != nil {
 			return 0, fmt.Errorf("createInboundDispatcher(...) = %v", err)
@@ -238,48 +228,7 @@ func createInboundDispatcher(e *endpoint, fd int, isSocket bool) (linkDispatcher
 		return nil, fmt.Errorf("newReadVDispatcher(%d, %+v) = %v", fd, e, err)
 	}
 
-	if isSocket {
-		sa, err := unix.Getsockname(fd)
-		if err != nil {
-			return nil, fmt.Errorf("unix.Getsockname(%d) = %v", fd, err)
-		}
-		switch sa.(type) {
-		case *unix.SockaddrLinklayer:
-			// enable PACKET_FANOUT mode is the underlying socket is
-			// of type AF_PACKET.
-			const fanoutID = 1
-			const fanoutType = 0x8000 // PACKET_FANOUT_HASH | PACKET_FANOUT_FLAG_DEFRAG
-			fanoutArg := fanoutID | fanoutType<<16
-			if err := syscall.SetsockoptInt(fd, syscall.SOL_PACKET, unix.PACKET_FANOUT, fanoutArg); err != nil {
-				return nil, fmt.Errorf("failed to enable PACKET_FANOUT option: %v", err)
-			}
-		}
-
-		switch e.packetDispatchMode {
-		case PacketMMap:
-			inboundDispatcher, err = newPacketMMapDispatcher(fd, e)
-			if err != nil {
-				return nil, fmt.Errorf("newPacketMMapDispatcher(%d, %+v) = %v", fd, e, err)
-			}
-		case RecvMMsg:
-			// If the provided FD is a socket then we optimize
-			// packet reads by using recvmmsg() instead of read() to
-			// read packets in a batch.
-			inboundDispatcher, err = newRecvMMsgDispatcher(fd, e)
-			if err != nil {
-				return nil, fmt.Errorf("newRecvMMsgDispatcher(%d, %+v) = %v", fd, e, err)
-			}
-		}
-	}
 	return inboundDispatcher, nil
-}
-
-func isSocketFD(fd int) (bool, error) {
-	var stat syscall.Stat_t
-	if err := syscall.Fstat(fd, &stat); err != nil {
-		return false, fmt.Errorf("syscall.Fstat(%v,...) failed: %v", fd, err)
-	}
-	return (stat.Mode & syscall.S_IFSOCK) == syscall.S_IFSOCK, nil
 }
 
 // Attach launches the goroutine that reads packets from the file descriptor and
@@ -359,41 +308,62 @@ func (e *endpoint) WritePacket(r *stack.Route, gso *stack.GSO, hdr buffer.Prepen
 	}
 
 	if e.Capabilities()&stack.CapabilityGSO != 0 {
-		vnetHdr := virtioNetHdr{}
-		vnetHdrBuf := vnetHdrToByteSlice(&vnetHdr)
-		if gso != nil {
-			vnetHdr.hdrLen = uint16(hdr.UsedLength())
-			if gso.NeedsCsum {
-				vnetHdr.flags = _VIRTIO_NET_HDR_F_NEEDS_CSUM
-				vnetHdr.csumStart = header.EthernetMinimumSize + gso.L3HdrLen
-				vnetHdr.csumOffset = gso.CsumOffset
-			}
-			if gso.Type != stack.GSONone && uint16(payload.Size()) > gso.MSS {
-				switch gso.Type {
-				case stack.GSOTCPv4:
-					vnetHdr.gsoType = _VIRTIO_NET_HDR_GSO_TCPV4
-				case stack.GSOTCPv6:
-					vnetHdr.gsoType = _VIRTIO_NET_HDR_GSO_TCPV6
-				default:
-					panic(fmt.Sprintf("Unknown gso type: %v", gso.Type))
-				}
-				vnetHdr.gsoSize = gso.MSS
-			}
-		}
-
-		return rawfile.NonBlockingWrite3(e.fds[0], vnetHdrBuf, hdr.View(), payload.ToView())
+		return tcpip.ErrNotSupported
 	}
 
 	if payload.Size() == 0 {
-		return rawfile.NonBlockingWrite(e.fds[0], hdr.View())
+		buf := hdr.View()
+		log.Printf("writing header-only, fd %v, len buf %v", e.fds[0], len(buf))
+		return write(e.fds[0], buf)
 	}
 
-	return rawfile.NonBlockingWrite3(e.fds[0], hdr.View(), payload.ToView(), nil)
+	hv := hdr.View()
+	pv := payload.ToView()
+	buf := make([]byte, len(hv) + len(pv))
+	copy(buf, hv)
+	copy(buf[:len(hv)], pv)
+	log.Printf("writing header+payload, fd %v, len hdr %v + len payload %v = %v", e.fds[0], len(hv), len(pv), len(buf))
+	return write(e.fds[0], buf)
 }
 
 // WriteRawPacket writes a raw packet directly to the file descriptor.
 func (e *endpoint) WriteRawPacket(dest tcpip.Address, packet []byte) *tcpip.Error {
-	return rawfile.NonBlockingWrite(e.fds[0], packet)
+	log.Printf("writing raw packet, fd %v, len packet %v", e.fds[0], len(packet))
+	return write(e.fds[0], packet)
+}
+
+func write(fd int, buf []byte) *tcpip.Error {
+	log.Printf("writing packet to fd %d", fd)
+	dump(buf)
+	_, err := syscall.Write(fd, buf)
+	return translateError(err)
+}
+
+func dump(buf []byte) {
+	log.Printf("packet:")
+	b := bufio.NewWriter(os.Stdout)
+	for len(buf) > 0 {
+		for i := 0; i < 8 && len(buf) > 0; i++ {
+			n := 2
+			if len(buf) == 1 {
+				n = 1
+			}
+			fmt.Fprintf(b, "%x ", buf[:n])
+			buf = buf[n:]
+		}
+		fmt.Fprint(b, "\n")
+	}
+	fmt.Fprint(b, "\n")
+	b.Flush()
+}
+
+func translateError(err error) *tcpip.Error {
+	if err == nil {
+		log.Print("write: no error")
+		return nil
+	}
+	log.Println("write, error:", err)
+	return tcpip.ErrNotSupported
 }
 
 // dispatchLoop reads packets from the file descriptor in a loop and dispatches
