@@ -321,7 +321,7 @@ func (e *endpoint) WritePacket(r *stack.Route, gso *stack.GSO, hdr buffer.Prepen
 	pv := payload.ToView()
 	buf := make([]byte, len(hv) + len(pv))
 	copy(buf, hv)
-	copy(buf[:len(hv)], pv)
+	copy(buf[len(hv):], pv)
 	log.Printf("writing header+payload, fd %v, len hdr %v + len payload %v = %v", e.fds[0], len(hv), len(pv), len(buf))
 	return write(e.fds[0], buf)
 }
@@ -333,9 +333,12 @@ func (e *endpoint) WriteRawPacket(dest tcpip.Address, packet []byte) *tcpip.Erro
 }
 
 func write(fd int, buf []byte) *tcpip.Error {
+	nbuf := make([]byte, 4 + len(buf))
+	nbuf[3] = syscall.AF_INET // xxx could also be AF_INET6
+	copy(nbuf[4:], buf)
 	log.Printf("writing packet to fd %d", fd)
-	dump(buf)
-	_, err := syscall.Write(fd, buf)
+	dump(nbuf)
+	_, err := syscall.Write(fd, nbuf)
 	return translateError(err)
 }
 
@@ -359,7 +362,7 @@ func dump(buf []byte) {
 
 func translateError(err error) *tcpip.Error {
 	if err == nil {
-		log.Print("write: no error")
+		log.Print("write ok")
 		return nil
 	}
 	log.Println("write, error:", err)
