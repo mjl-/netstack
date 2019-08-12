@@ -39,10 +39,7 @@ package fdbased
 
 import (
 	"fmt"
-	"log"
 	"syscall"
-	"bufio"
-	"os"
 
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/buffer"
@@ -313,7 +310,7 @@ func (e *endpoint) WritePacket(r *stack.Route, gso *stack.GSO, hdr buffer.Prepen
 
 	if payload.Size() == 0 {
 		buf := hdr.View()
-		log.Printf("writing header-only, fd %v, len buf %v", e.fds[0], len(buf))
+		// log.Printf("writing header-only, fd %v, len buf %v", e.fds[0], len(buf))
 		return write(e.fds[0], buf)
 	}
 
@@ -322,13 +319,13 @@ func (e *endpoint) WritePacket(r *stack.Route, gso *stack.GSO, hdr buffer.Prepen
 	buf := make([]byte, len(hv) + len(pv))
 	copy(buf, hv)
 	copy(buf[len(hv):], pv)
-	log.Printf("writing header+payload, fd %v, len hdr %v + len payload %v = %v", e.fds[0], len(hv), len(pv), len(buf))
+	// log.Printf("writing header+payload, fd %v, len hdr %v + len payload %v = %v", e.fds[0], len(hv), len(pv), len(buf))
 	return write(e.fds[0], buf)
 }
 
 // WriteRawPacket writes a raw packet directly to the file descriptor.
 func (e *endpoint) WriteRawPacket(dest tcpip.Address, packet []byte) *tcpip.Error {
-	log.Printf("writing raw packet, fd %v, len packet %v", e.fds[0], len(packet))
+	// log.Printf("writing raw packet, fd %v, len packet %v", e.fds[0], len(packet))
 	return write(e.fds[0], packet)
 }
 
@@ -336,36 +333,13 @@ func write(fd int, buf []byte) *tcpip.Error {
 	nbuf := make([]byte, 4 + len(buf))
 	nbuf[3] = syscall.AF_INET // xxx could also be AF_INET6
 	copy(nbuf[4:], buf)
-	log.Printf("writing packet to fd %d", fd)
 	dump(nbuf)
 	_, err := syscall.Write(fd, nbuf)
-	return translateError(err)
-}
-
-func dump(buf []byte) {
-	log.Printf("packet:")
-	b := bufio.NewWriter(os.Stdout)
-	for len(buf) > 0 {
-		for i := 0; i < 8 && len(buf) > 0; i++ {
-			n := 2
-			if len(buf) == 1 {
-				n = 1
-			}
-			fmt.Fprintf(b, "%x ", buf[:n])
-			buf = buf[n:]
-		}
-		fmt.Fprint(b, "\n")
-	}
-	fmt.Fprint(b, "\n")
-	b.Flush()
-}
-
-func translateError(err error) *tcpip.Error {
 	if err == nil {
-		log.Print("write ok")
+		// log.Print("write ok")
 		return nil
 	}
-	log.Println("write, error:", err)
+	// log.Println("write, error:", err)
 	return tcpip.ErrNotSupported
 }
 

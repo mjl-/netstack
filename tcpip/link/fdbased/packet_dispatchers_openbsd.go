@@ -16,53 +16,13 @@ package fdbased
 
 import (
 	"syscall"
-	"unsafe"
-	"log"
-	"bufio"
-	"os"
-	"fmt"
 
 	"github.com/google/netstack/tcpip"
 	"github.com/google/netstack/tcpip/buffer"
 	"github.com/google/netstack/tcpip/header"
+	"github.com/google/netstack/tcpip/link/rawfile"
 	"github.com/google/netstack/tcpip/stack"
 )
-
-func readv(fd int, iovecs []syscall.Iovec) (int, error) {
-	n, _, e := syscall.RawSyscall(syscall.SYS_READV, uintptr(fd), uintptr(unsafe.Pointer(&iovecs[0])), uintptr(len(iovecs)))
-	log.Printf("readv: %v, %v", n, e)
-	if e == 0 {
-		dumpv(iovecs, int(n))
-		return int(n), nil
-	}
-	return int(n), e
-}
-
-func dumpv(iovecs []syscall.Iovec, n int) {
-	log.Printf("incoming packet:")
-	b := bufio.NewWriter(os.Stdout)
-	iov := make([]syscall.Iovec, len(iovecs))
-	copy(iov, iovecs)
-	for n > 0 {
-		for i := 0; i < 16 && n > 0; i++ {
-			n--
-			v := *iov[0].Base
-			iov[0].Len--
-			if iov[0].Len == 0 {
-				iov = iov[1:]
-			} else {
-				iov[0].Base = (*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(iov[0].Base))+1))
-			}
-			fmt.Fprintf(b, "%02x", v)
-			if i % 2 == 1 {
-				fmt.Fprint(b, " ")
-			}
-		}
-		fmt.Fprint(b, "\n")
-	}
-	fmt.Fprint(b, "\n")
-	b.Flush()
-}
 
 // BufConfig defines the shape of the vectorised view used to read packets from the NIC.
 var BufConfig = []int{128, 256, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}
@@ -151,9 +111,9 @@ func (d *readVDispatcher) capViews(n int, buffers []int) int {
 func (d *readVDispatcher) dispatch() (bool, *tcpip.Error) {
 	d.allocateViews(BufConfig)
 
-	n, err := readv(d.fd, d.iovecs)
+	n, err := rawfile.BlockingReadv(d.fd, d.iovecs)
 	if err != nil {
-		return false, translateError(err)
+		return false, err
 	}
 	if d.e.Capabilities()&stack.CapabilityGSO != 0 {
 		// Skip virtioNetHdr which is added before each packet, it
