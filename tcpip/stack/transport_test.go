@@ -65,7 +65,7 @@ func (*fakeTransportEndpoint) Read(*tcpip.FullAddress) (buffer.View, tcpip.Contr
 	return buffer.View{}, tcpip.ControlMessages{}, nil
 }
 
-func (f *fakeTransportEndpoint) Write(p tcpip.Payload, opts tcpip.WriteOptions) (uintptr, <-chan struct{}, *tcpip.Error) {
+func (f *fakeTransportEndpoint) Write(p tcpip.Payload, opts tcpip.WriteOptions) (int64, <-chan struct{}, *tcpip.Error) {
 	if len(f.route.RemoteAddress) == 0 {
 		return 0, nil, tcpip.ErrNoRoute
 	}
@@ -79,10 +79,10 @@ func (f *fakeTransportEndpoint) Write(p tcpip.Payload, opts tcpip.WriteOptions) 
 		return 0, nil, err
 	}
 
-	return uintptr(len(v)), nil, nil
+	return int64(len(v)), nil, nil
 }
 
-func (f *fakeTransportEndpoint) Peek([][]byte) (uintptr, tcpip.ControlMessages, *tcpip.Error) {
+func (f *fakeTransportEndpoint) Peek([][]byte) (int64, tcpip.ControlMessages, *tcpip.Error) {
 	return 0, tcpip.ControlMessages{}, nil
 }
 
@@ -103,6 +103,11 @@ func (*fakeTransportEndpoint) GetSockOpt(opt interface{}) *tcpip.Error {
 		return nil
 	}
 	return tcpip.ErrInvalidEndpointState
+}
+
+// Disconnect implements tcpip.Endpoint.Disconnect.
+func (*fakeTransportEndpoint) Disconnect() *tcpip.Error {
+	return tcpip.ErrNotSupported
 }
 
 func (f *fakeTransportEndpoint) Connect(addr tcpip.FullAddress) *tcpip.Error {
@@ -203,6 +208,9 @@ func (f *fakeTransportEndpoint) ModerateRecvBuf(copied int) {
 
 func (f *fakeTransportEndpoint) IPTables() (iptables.IPTables, error) {
 	return iptables.IPTables{}, nil
+}
+
+func (f *fakeTransportEndpoint) Resume(*stack.Stack) {
 }
 
 type fakeTransportGoodOption bool

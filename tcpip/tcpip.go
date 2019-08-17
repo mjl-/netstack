@@ -168,6 +168,11 @@ func NewSubnet(a Address, m AddressMask) (Subnet, error) {
 	return Subnet{a, m}, nil
 }
 
+// String implements Stringer.
+func (s Subnet) String() string {
+	return fmt.Sprintf("%s/%d", s.ID(), s.Prefix())
+}
+
 // Contains returns true iff the address is of the same length and matches the
 // subnet address and mask.
 func (s *Subnet) Contains(a Address) bool {
@@ -329,12 +334,12 @@ type Endpoint interface {
 	// ErrNoLinkAddress and a notification channel is returned for the caller to
 	// block. Channel is closed once address resolution is complete (success or
 	// not). The channel is only non-nil in this case.
-	Write(Payload, WriteOptions) (uintptr, <-chan struct{}, *Error)
+	Write(Payload, WriteOptions) (int64, <-chan struct{}, *Error)
 
 	// Peek reads data without consuming it from the endpoint.
 	//
 	// This method does not block if there is no data pending.
-	Peek([][]byte) (uintptr, ControlMessages, *Error)
+	Peek([][]byte) (int64, ControlMessages, *Error)
 
 	// Connect connects the endpoint to its peer. Specifying a NIC is
 	// optional.
@@ -352,6 +357,9 @@ type Endpoint interface {
 	// disconnected if this is supported, otherwise
 	// ErrAddressFamilyNotSupported must be returned.
 	Connect(address FullAddress) *Error
+
+	// Disconnect disconnects the endpoint from its peer.
+	Disconnect() *Error
 
 	// Shutdown closes the read and/or write end of the endpoint connection
 	// to its peer.
@@ -1072,6 +1080,11 @@ type AddressWithPrefix struct {
 	PrefixLen int
 }
 
+// String implements the fmt.Stringer interface.
+func (a AddressWithPrefix) String() string {
+	return fmt.Sprintf("%s/%d", a.Address, a.PrefixLen)
+}
+
 // ProtocolAddress is an address and the network protocol it is associated
 // with.
 type ProtocolAddress struct {
@@ -1082,11 +1095,13 @@ type ProtocolAddress struct {
 	AddressWithPrefix AddressWithPrefix
 }
 
-// danglingEndpointsMu protects access to danglingEndpoints.
-var danglingEndpointsMu sync.Mutex
+var (
+	// danglingEndpointsMu protects access to danglingEndpoints.
+	danglingEndpointsMu sync.Mutex
 
-// danglingEndpoints tracks all dangling endpoints no longer owned by the app.
-var danglingEndpoints = make(map[Endpoint]struct{})
+	// danglingEndpoints tracks all dangling endpoints no longer owned by the app.
+	danglingEndpoints = make(map[Endpoint]struct{})
+)
 
 // GetDanglingEndpoints returns all dangling endpoints.
 func GetDanglingEndpoints() []Endpoint {
