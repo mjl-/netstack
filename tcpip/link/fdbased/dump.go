@@ -2,7 +2,6 @@ package fdbased
 
 import (
 	"syscall"
-	"log"
 	"bufio"
 	"fmt"
 	"os"
@@ -12,12 +11,12 @@ import (
 
 var dumpEnabled = os.Getenv("NETSTACKDUMP") != ""
 
-func dumpv(iovecs []syscall.Iovec, n int) {
+func dumpv(what string, iovecs []syscall.Iovec, n int) {
 	if !dumpEnabled {
 		return
 	}
-	log.Printf("incoming packet:")
-	b := bufio.NewWriter(os.Stdout)
+	b := bufio.NewWriter(os.Stderr)
+	fmt.Fprintf(b, "%s packet:\n", what)
 	iov := make([]syscall.Iovec, len(iovecs))
 	copy(iov, iovecs)
 	for n > 0 {
@@ -41,12 +40,12 @@ func dumpv(iovecs []syscall.Iovec, n int) {
 	b.Flush()
 }
 
-func dump(buf []byte) {
+func dump(what string, buf []byte) {
 	if !dumpEnabled {
 		return
 	}
-	log.Printf("packet:")
-	b := bufio.NewWriter(os.Stdout)
+	b := bufio.NewWriter(os.Stderr)
+	fmt.Fprintf(b, "%s packet:\n", what)
 	for len(buf) > 0 {
 		for i := 0; i < 8 && len(buf) > 0; i++ {
 			n := 2

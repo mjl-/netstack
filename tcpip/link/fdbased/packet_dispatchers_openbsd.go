@@ -73,14 +73,17 @@ func (d *readVDispatcher) allocateViews(bufConfig []int) {
 		vnetHdrOff++
 	}
 
-	// openbsd adds 4 bytes with a "type" (AF_INET, AF_INET6)
+	// openbsd adds 4 bytes with a "type" (AF_INET, AF_INET6) for tun files.
 	// add an iovec (like the GSO-case above), but don't reference it otherwise.
-	var openbsdTunHdr [4]byte
-	d.iovecs[vnetHdrOff] = syscall.Iovec{
-		Base: &openbsdTunHdr[0],
-		Len:  uint64(4),
+	isTun := d.e.hdrSize == 0
+	if isTun {
+		var openbsdTunHdr [4]byte
+		d.iovecs[vnetHdrOff] = syscall.Iovec{
+			Base: &openbsdTunHdr[0],
+			Len:  uint64(4),
+		}
+		vnetHdrOff++
 	}
-	vnetHdrOff++
 
 	for i := 0; i < len(bufConfig); i++ {
 		if d.views[i] != nil {
@@ -115,6 +118,7 @@ func (d *readVDispatcher) dispatch() (bool, *tcpip.Error) {
 	if err != nil {
 		return false, err
 	}
+	dumpv("incoming", d.iovecs, n)
 	if d.e.Capabilities()&stack.CapabilityGSO != 0 {
 		// Skip virtioNetHdr which is added before each packet, it
 		// isn't used and it isn't in a view.
