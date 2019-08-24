@@ -48,7 +48,7 @@ import (
 	"github.com/google/netstack/tcpip/header"
 	"github.com/google/netstack/tcpip/link/rawfile"
 	"github.com/google/netstack/tcpip/stack"
-	"golang.org/x/sys/unix"
+	// "golang.org/x/sys/unix"
 )
 
 // linkDispatcher reads packets from the link FD and dispatches them to the
@@ -239,6 +239,8 @@ func createInboundDispatcher(e *endpoint, fd int, isSocket bool) (linkDispatcher
 	}
 
 	if isSocket {
+		return nil, fmt.Errorf("socket fd not supported")
+/*
 		sa, err := unix.Getsockname(fd)
 		if err != nil {
 			return nil, fmt.Errorf("unix.Getsockname(%d) = %v", fd, err)
@@ -270,6 +272,7 @@ func createInboundDispatcher(e *endpoint, fd int, isSocket bool) (linkDispatcher
 				return nil, fmt.Errorf("newRecvMMsgDispatcher(%d, %+v) = %v", fd, e, err)
 			}
 		}
+*/
 	}
 	return inboundDispatcher, nil
 }
