@@ -19,7 +19,6 @@ package rand
 import (
 	"crypto/rand"
 	"io"
-	"sync"
 )
 
 // reader implements an io.Reader that returns pseudorandom bytes.

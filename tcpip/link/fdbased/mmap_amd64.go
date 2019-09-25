@@ -137,7 +137,7 @@ func (d *packetMMapDispatcher) readMMappedPacket() ([]byte, *tcpip.Error) {
 		)
 		event := rawfile.PollEvent{
 			FD:     int32(d.fd),
-			Events: unixPOLLIN | unixPOLERR,
+			Events: unixPOLLIN | unixPOLLERR,
 		}
 		if _, errno := rawfile.BlockingPoll(&event, 1, nil); errno != 0 {
 			if errno == syscall.EINTR {
